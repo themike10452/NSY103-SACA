@@ -1,0 +1,9 @@
+# CMake
+cmake-build-debug/
+
+# Make
+SACA/out/
+
+# IntelliJ
+.idea/
+*.iml
