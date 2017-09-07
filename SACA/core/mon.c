@@ -2,6 +2,7 @@
 #include "airplane.h"
 #include "../common/net/tcpcon.h"
 #include "../common/utils/base64.h"
+#include "../common/math/math2.h"
 
 #include <unistd.h>
 #include <signal.h>
@@ -124,7 +125,13 @@ void handle_message(tcpcon* c, char* msg)
                     else
                         output_color = KNRM;
 
-                    printf("%s%6s  %7.1f,%7.1f %8.1f %5.1f %7.2f\n" KNRM, output_color, ap->id, ap->coords.x, ap->coords.y, ap->coords.z, ap->pitch, ap->speed);
+                    printf("%s%6s  %7.1f,%7.1f %8.1f %5.1f %7.2f\n" KNRM, output_color,
+                           ap->id,
+                           ap->coords.x,
+                           ap->coords.y,
+                           kmtofeet(ap->coords.z),
+                           ap->pitch,
+                           kmtomiles(ap->speed));
                 }
 
                 list_free(airplanes, YES);
