@@ -10,6 +10,10 @@ tcpserv* tcpserv_create(const char* hostname, int port, con_handler_t con_handle
     tcpserv* serv = (tcpserv*)calloc(1, sizeof(tcpserv));
     serv->sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
+    int one = 1;
+    setsockopt(serv->sockfd, SOL_SOCKET, SO_REUSEPORT, &one, sizeof(int));
+    setsockopt(serv->sockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(int));
+
     serv->addr.sin_family = AF_INET;
     serv->addr.sin_addr.s_addr = inet_addr(hostname);
     serv->addr.sin_port = htons(port);

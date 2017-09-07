@@ -8,7 +8,7 @@
 #define HINT_LOCK_ACK                  1 << 4
 #define HINT_RELEASE_ACK               1 << 5
 #define HINT_AIRPLANE_LIST             1 << 10
-#define HINT_COLLISION_DETECTION_LIST  1 << 11
+#define HINT_ID_LIST                   1 << 11
 
 #define MSG_MAX_LENGTH 4000
 
@@ -16,7 +16,7 @@ typedef struct msg_t msg_t;
 
 struct msg_t
 {
-	unsigned int hints;
+    unsigned int hints;
     char* body;
     char* from;
     char* to;

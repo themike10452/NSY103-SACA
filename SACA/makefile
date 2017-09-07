@@ -34,10 +34,14 @@ mon: prereq utils net core
 	$(CC) $(INC) -g -c core/mon.c -o out/mon.o $(CFLAGS)
 	$(CC) $(INC) -o out/mon ${LIBUTILS} ${LIBNET} ${LIBCORE} out/mon.o $(CFLAGS)
 
+cmd: prereq utils net core
+	$(CC) $(INC) -g -c core/cmd.c -o out/cmd.o $(CFLAGS)
+	$(CC) $(INC) -o out/cmd ${LIBUTILS} ${LIBNET} ${LIBCORE} out/cmd.o $(CFLAGS)
+
 prereq:
 	mkdir -p out
 
-all: prereq controller mon pilot clean
+all: prereq controller mon cmd pilot clean
 
 clean:
 	rm -f out/*.o

@@ -174,8 +174,15 @@ int close_connection()
 
 void handle_message(tcpcon* c, char* msg)
 {
-    puts(msg);
-    tcpcon_sendstr(con, "This is my response", -1);
+    if (msg_isvalid(msg))
+    {
+        msg_t* m = msg_deserialize(msg);
+        if (m->hints & HINT_COMMAND)
+        {
+            printf("%d: %s\n", c->sockfd, m->body);
+        }
+        msg_free(m);
+    }
 }
 
 void handle_disconnect(tcpcon* c)

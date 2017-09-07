@@ -27,10 +27,17 @@ set(MON_SRC
         core/airplane.c
         core/mon.c)
 
+set(CMD_SRC
+        ${COMMON_SRC}
+        core/airplane.c
+        core/cmd.c)
+
 add_executable(controller ${CONTROLLER_SRC})
 add_executable(pilot ${PILOT_SRC})
 add_executable(mon ${MON_SRC})
+add_executable(cmd ${CMD_SRC})
 
 target_link_libraries(controller pthread m)
 target_link_libraries(pilot pthread m)
 target_link_libraries(mon pthread m)
+target_link_libraries(cmd pthread m)

@@ -8,14 +8,14 @@
 
 msg_t* msg_create(unsigned int hints, char* body, char* from, char* to)
 {
-    int len;
+    unsigned int len;
     msg_t* msg = (msg_t*)calloc(1, sizeof(msg_t));
     msg->hints = hints;
 
     if (body)
     {
         len = strlen(body);
-        msg->body = (char*)malloc(len + 1);
+        msg->body = (char*)calloc(len + 1, sizeof(char));
         str_cpy(msg->body, body, len);
     }
     else
@@ -26,7 +26,7 @@ msg_t* msg_create(unsigned int hints, char* body, char* from, char* to)
     if (from)
     {
         len = strlen(from);
-        msg->from = (char*)malloc(len + 1);
+        msg->from = (char*)calloc(len + 1, sizeof(char));
         str_cpy(msg->from, from, len);
     }
     else
@@ -37,7 +37,7 @@ msg_t* msg_create(unsigned int hints, char* body, char* from, char* to)
     if (to)
     {
         len = strlen(to);
-        msg->to = (char*)malloc(len + 1);
+        msg->to = (char*)calloc(len + 1, sizeof(char));
         str_cpy(msg->to, to, len);
     }
     else

@@ -25,14 +25,18 @@ int init();
 void broadcast();
 void detect_collisions();
 char* serialize_airplane_list();
-airplane* find_airplane(int socket);
-void add_airplane(int socket, airplane* ap);
-void remove_airplane(int socket);
+airplane* find_airplane(tcpcon* con);
+tcpcon* find_airplane_con(char* id);
+void add_airplane(tcpcon* con, airplane* ap);
+void remove_airplane(tcpcon* con);
 void ap_handle_connect(tcpcon* con);
 void ap_handle_message(tcpcon* con, char* msg);
 void ap_handle_disconnect(tcpcon* con);
 void mon_handle_connect(tcpcon* con);
 void mon_handle_disconnect(tcpcon* con);
+void cmd_handle_connect(tcpcon* con);
+void cmd_handle_message(tcpcon* con, char* msg);
+void cmd_handle_disconnect(tcpcon* con);
 void cleanup();
 void handle_exit(int sig);
 
@@ -75,7 +79,7 @@ int init()
     mon_consoles = list_create(5);
 
     serv_airplanes = tcpserv_create(CTRL_HOST, PORT_AP, ap_handle_connect, ap_handle_message, ap_handle_disconnect);
-    serv_cmd = tcpserv_create(CTRL_HOST, PORT_CMD, NULL, NULL, NULL);
+    serv_cmd = tcpserv_create(CTRL_HOST, PORT_CMD, cmd_handle_connect, cmd_handle_message, cmd_handle_disconnect);
     serv_mon = tcpserv_create(CTRL_HOST, PORT_MON, mon_handle_connect, NULL, mon_handle_disconnect);
 
     return serv_airplanes && serv_cmd && serv_mon;
@@ -83,8 +87,8 @@ int init()
 
 char* serialize_airplane_list()
 {
-    static char srl_buffer[4000];
-    static char srl_buffer_staging[1000];
+    static char srl_buffer[5000];
+    static char srl_buffer_staging[5000];
 
     memset(srl_buffer, 0, sizeof(srl_buffer));
     memset(srl_buffer_staging, 0, sizeof(srl_buffer_staging));
@@ -106,7 +110,7 @@ char* serialize_airplane_list()
         free(bufferEnc);
     }
 
-    char* result = (char*)calloc(4010, sizeof(char));
+    char* result = (char*)calloc(strlen(srl_buffer) + 8, sizeof(char));
     strcat(result, "lst::<");
     strcat(result, srl_buffer);
     strcat(result, ">");
@@ -155,33 +159,43 @@ void detect_collisions()
     }
 }
 
-airplane* find_airplane(int socket)
+airplane* find_airplane(tcpcon* con)
 {
     pair_t* p;
     for (unsigned int i = 0; i < airplanes->size; i++)
     {
         p = ((pair_t*)list_get(airplanes, i));
-        if (socket == *(int*)p->first)
+        if (con == (tcpcon*)p->first)
             return (airplane*)p->second;
     }
     return NULL;
 }
 
-void add_airplane(int socket, airplane* ap)
-{
-    int* id = (int*)calloc(1, sizeof(int));
-    *id = socket;
-    pair_t* pair = pair_create(id, ap);
-    list_push(airplanes, pair);
-}
-
-void remove_airplane(int socket)
+tcpcon* find_airplane_con(char* id)
 {
     pair_t* p;
     for (unsigned int i = 0; i < airplanes->size; i++)
     {
         p = ((pair_t*)list_get(airplanes, i));
-        if (socket == *(int*)p->first)
+        if (strcmp(((airplane*)p->second)->id, id) == 0)
+            return (tcpcon*)p->first;
+    }
+    return NULL;
+}
+
+void add_airplane(tcpcon* con, airplane* ap)
+{
+    pair_t* pair = pair_create(con, ap);
+    list_push(airplanes, pair);
+}
+
+void remove_airplane(tcpcon* con)
+{
+    pair_t* p;
+    for (unsigned int i = 0; i < airplanes->size; i++)
+    {
+        p = ((pair_t*)list_get(airplanes, i));
+        if (con == (tcpcon*)p->first)
         {
             list_removeat(airplanes, i);
             free(p->first);
@@ -210,7 +224,7 @@ void ap_handle_message(tcpcon* con, char* msg)
             airplane* ap = (airplane*)calloc(1, sizeof(airplane));
             airplane_deserialize(m->body, ap);
 
-            airplane* existing_ap = find_airplane(con->sockfd);
+            airplane* existing_ap = find_airplane(con);
 
             if (existing_ap)
             {
@@ -219,8 +233,10 @@ void ap_handle_message(tcpcon* con, char* msg)
             }
             else
             {
-                add_airplane(con->sockfd, ap);
+                add_airplane(con, ap);
             }
+
+            msg_free(m);
         }
     pthread_mutex_unlock(&mutex);
 }
@@ -232,7 +248,32 @@ void ap_handle_disconnect(tcpcon* con)
 
     pthread_mutex_lock(&mutex);
         puts("Ap disconnected");
-        remove_airplane(con->sockfd);
+
+        // disconnect any related command consoles
+        airplane* ap = find_airplane(con);
+        if (ap)
+        {
+            pair_t* p;
+            tcpcon* c;
+            for (unsigned int i = 0; i < cmd_consoles->size; i++)
+            {
+                p = (pair_t*)list_get(cmd_consoles, i);
+                if (strcmp(ap->id, (char*)p->first) == 0)
+                {
+                    c = (tcpcon*)p->second;
+                    c->close_handler = NULL; // avoid deadlock
+                    tcpcon_close(c);
+                    tcpcon_free(c);
+                    free(p->first);
+                    free(p);
+                    puts("cmd disconnected");
+                    list_removeat(cmd_consoles, i);
+                    break;
+                }
+            }
+        }
+
+        remove_airplane(con);
     pthread_mutex_unlock(&mutex);
 }
 
@@ -258,6 +299,106 @@ void mon_handle_disconnect(tcpcon* con)
     pthread_mutex_unlock(&mutex);
 }
 
+void cmd_handle_connect(tcpcon* con)
+{
+    if (!keepalive)
+        return;
+
+    static char buffer[5000];
+
+    puts("cmd connected");
+
+    pthread_mutex_lock(&mutex);
+        memset(buffer, 0, sizeof(buffer));
+
+        for (unsigned int i = 0; i < airplanes->size; i++)
+        {
+            strcat(buffer, ((airplane*)((pair_t*)list_get(airplanes, i))->second)->id);
+            if (i + 1 < airplanes->size)
+                strcat(buffer, ";");
+        }
+
+        msg_t* msg = msg_create(HINT_ID_LIST, buffer, NULL, NULL);
+        tcpcon_sendmsg(con, msg);
+        msg_free(msg);
+    pthread_mutex_unlock(&mutex);
+}
+
+void cmd_handle_message(tcpcon* con, char* msg)
+{
+    if (!keepalive)
+        return;
+
+    pthread_mutex_lock(&mutex);
+        if (msg_isvalid(msg))
+        {
+            msg_t* m = msg_deserialize(msg);
+            if (m->hints & HINT_LOCK)
+            {
+                int taken = 0;
+
+                pair_t* p;
+                for (unsigned int i = 0; i < cmd_consoles->size && !taken; i++)
+                {
+                    p = (pair_t*)list_get(cmd_consoles, i);
+                    taken = (strcmp((char*)p->first, m->to) == 0);
+                }
+
+                if (!taken)
+                {
+                    char* apid = (char*)calloc(strlen(m->to) + 1, sizeof(char));
+                    str_cpy(apid, m->to, strlen(m->to));
+
+                    p = pair_create(apid, con);
+                    list_push(cmd_consoles, p);
+
+                    msg_t* resp = msg_create(HINT_LOCK_ACK, "OK", m->from, m->to);
+                    tcpcon_sendmsg(con, resp);
+                    msg_free(resp);
+                }
+                else
+                {
+                    msg_t* resp = msg_create(HINT_LOCK_ACK, "NO", m->from, m->to);
+                    tcpcon_sendmsg(con, resp);
+                    msg_free(resp);
+                }
+            }
+            if (m->hints & HINT_COMMAND)
+            {
+                tcpcon* c = find_airplane_con(m->to);
+                if (c)
+                {
+                    tcpcon_sendmsg(c, m);
+                }
+            }
+            msg_free(m);
+        }
+    pthread_mutex_unlock(&mutex);
+}
+
+void cmd_handle_disconnect(tcpcon* con)
+{
+    if (!keepalive)
+        return;
+
+    pthread_mutex_lock(&mutex);
+        puts("cmd disconnected");
+        pair_t* p;
+        for (unsigned int i = 0; i < cmd_consoles->size; i++)
+        {
+            p = (pair_t*)list_get(cmd_consoles, i);
+            if (con == (tcpcon*)p->second)
+            {
+                free(p->first);
+                free(p->second);
+                free(p);
+                list_removeat(cmd_consoles, i);
+                break;
+            }
+        }
+    pthread_mutex_unlock(&mutex);
+}
+
 void cleanup()
 {
     pthread_mutex_lock(&mutex);
@@ -265,10 +406,31 @@ void cleanup()
             list_free(airplanes, YES);
 
         if (cmd_consoles)
+        {
+            pair_t* p;
+            for (unsigned int i = 0; i < cmd_consoles->size; i++)
+            {
+                p = (pair_t*)list_get(cmd_consoles, i);
+                tcpcon_close((tcpcon*)p->second);
+                tcpcon_free((tcpcon*)p->second);
+                free((char*)p->first);
+            }
+
             list_free(cmd_consoles, YES);
+        }
 
         if (mon_consoles)
-            list_free(mon_consoles, YES);
+        {
+            tcpcon* con;
+            for (unsigned int i = 0; i < mon_consoles->size; i++)
+            {
+                con = (tcpcon*)list_get(mon_consoles, i);
+                tcpcon_close(con);
+                tcpcon_free(con);
+            }
+
+            list_free(mon_consoles, NO);
+        }
 
         if (serv_airplanes)
         {
